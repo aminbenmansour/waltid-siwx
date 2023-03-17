@@ -2,6 +2,7 @@ import "../styles/globals.css";
 import type { AppProps } from "next/app";
 import { createGlobalStyle } from "styled-components";
 
+import { AuthContextProvider } from "../contexts/AuthContext";
 import { ClientContextProvider } from "../contexts/ClientContext";
 import { JsonRpcContextProvider } from "../contexts/JsonRpcContext";
 import { ChainDataContextProvider } from "../contexts/ChainDataContext";
@@ -19,9 +20,11 @@ function MyApp({ Component, pageProps }: AppProps) {
       <GlobalStyle />
       <ChainDataContextProvider>
         <ClientContextProvider>
-          <JsonRpcContextProvider>
-            <Component {...pageProps} />
-          </JsonRpcContextProvider>
+          <AuthContextProvider>
+            <JsonRpcContextProvider>
+              <Component {...pageProps} />
+            </JsonRpcContextProvider>
+          </AuthContextProvider>
         </ClientContextProvider>
       </ChainDataContextProvider>
     </>

@@ -36,6 +36,8 @@ import {
 import { useWalletConnectClient } from "../contexts/ClientContext";
 import { useJsonRpc } from "../contexts/JsonRpcContext";
 import { useChainData } from "../contexts/ChainDataContext";
+import { useWCAuthClient } from "../contexts/AuthContext";
+import Button from "../components/Button";
 
 // Normal import does not work here
 const { version } = require("@walletconnect/sign-client/package.json");
@@ -83,6 +85,8 @@ const Home: NextPage = () => {
 
   const { chainData } = useChainData();
 
+  const { signIn } = useWCAuthClient();
+
   // Close the pairing modal after a session is established.
   useEffect(() => {
     if (session && modal === "pairing") {
@@ -112,12 +116,12 @@ const Home: NextPage = () => {
     if (typeof client === "undefined") {
       throw new Error("WalletConnect is not initialized");
     }
-    
+
     await client.emit({
-      topic: session?.topic || '',
-      event: { name: 'chainChanged', data: {} },
-      chainId: 'eip155:5'
-    })
+      topic: session?.topic || "",
+      event: { name: "chainChanged", data: {} },
+      chainId: "eip155:5",
+    });
   }
 
   const getEthereumActions = (): AccountAction[] => {
@@ -297,12 +301,12 @@ const Home: NextPage = () => {
     return [
       {
         method: DEFAULT_TRON_METHODS.TRON_SIGN_TRANSACTION,
-        callback: onSignTransaction
+        callback: onSignTransaction,
       },
       {
         method: DEFAULT_TRON_METHODS.TRON_SIGN_MESSAGE,
-        callback: onSignMessage
-      }
+        callback: onSignMessage,
+      },
     ];
   };
 
@@ -412,6 +416,16 @@ const Home: NextPage = () => {
               />
             );
           })}
+
+          <Button
+            type="button"
+            onClick={() => {
+              if (session instanceof Object) return signIn(session);
+              else throw new Error("session is undefined");
+            }}
+          >
+            Authenticate all sessions
+          </Button>
         </SAccounts>
       </SAccountsContainer>
     );
@@ -420,7 +434,12 @@ const Home: NextPage = () => {
   return (
     <SLayout>
       <Column maxWidth={1000} spanHeight>
-        <Header ping={onPing} disconnect={disconnect} session={session} emit={emit}/>
+        <Header
+          ping={onPing}
+          disconnect={disconnect}
+          session={session}
+          emit={emit}
+        />
         <SContent>{isInitializing ? "Loading..." : renderContent()}</SContent>
       </Column>
       <Modal show={!!modal} closeModal={closeModal}>
