@@ -51,22 +51,20 @@ export const SharedCoreContextProvider = ({
     setSharedCore(core);
   }, [relayerRegion]);
 
-
-
   const value = useMemo(
     () => ({
       sharedCore,
       relayerRegion,
       setRelayerRegion,
     }),
-    [relayerRegion, setRelayerRegion]
+    [sharedCore, relayerRegion, setRelayerRegion]
   );
 
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
     }
-  }, []);
+  }, [sharedCore, initSharedCore]);
 
   return (
     <SharedCoreContext.Provider value={{ ...value }}>

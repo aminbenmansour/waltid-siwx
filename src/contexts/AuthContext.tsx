@@ -95,7 +95,7 @@ export function AuthContextProvider({
     } catch (error) {
       console.log(error);
     }
-  }, [_subscribeToEvents]);
+  }, [sharedCore, _subscribeToEvents]);
 
   const signIn = useCallback(
     (_session: SessionTypes.Struct) => {
