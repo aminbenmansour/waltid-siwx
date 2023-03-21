@@ -120,7 +120,7 @@ export function JsonRpcContextProvider({
   const [result, setResult] = useState<IFormattedRpcResponse | null>();
   const [isTestnet, setIsTestnet] = useState(getLocalStorageTestnetFlag());
 
-  const { client, session, accounts, balances, solanaPublicKeys } =
+  const { signClient, session, accounts, balances, solanaPublicKeys } =
     useWalletConnectClient();
 
   const { chainData } = useChainData();
@@ -133,7 +133,7 @@ export function JsonRpcContextProvider({
       ) => Promise<IFormattedRpcResponse>
     ) =>
     async (chainId: string, address: string) => {
-      if (typeof client === "undefined") {
+      if (typeof signClient === "undefined") {
         throw new Error("WalletConnect is not initialized");
       }
       if (typeof session === "undefined") {
@@ -165,7 +165,7 @@ export function JsonRpcContextProvider({
     address.toLowerCase();
 
   const ping = async () => {
-    if (typeof client === "undefined") {
+    if (typeof signClient === "undefined") {
       throw new Error("WalletConnect is not initialized");
     }
     if (typeof session === "undefined") {
@@ -178,7 +178,7 @@ export function JsonRpcContextProvider({
       let valid = false;
 
       try {
-        await client.ping({ topic: session.topic });
+        await signClient.ping({ topic: session.topic });
         valid = true;
       } catch (e) {
         valid = false;
@@ -222,7 +222,7 @@ export function JsonRpcContextProvider({
           };
         }
 
-        const result = await client!.request<string>({
+        const result = await signClient!.request<string>({
           topic: session!.topic,
           chainId,
           request: {
@@ -251,7 +251,7 @@ export function JsonRpcContextProvider({
 
         const tx = await formatTestTransaction(account);
 
-        const signedTx = await client!.request<string>({
+        const signedTx = await signClient!.request<string>({
           topic: session!.topic,
           chainId,
           request: {
@@ -297,7 +297,7 @@ export function JsonRpcContextProvider({
         const params = [hexMsg, address];
 
         // send message
-        const signature = await client!.request<string>({
+        const signature = await signClient!.request<string>({
           topic: session!.topic,
           chainId,
           request: {
@@ -340,7 +340,7 @@ export function JsonRpcContextProvider({
         const params = [address, hexMsg];
 
         // send message
-        const signature = await client!.request<string>({
+        const signature = await signClient!.request<string>({
           topic: session!.topic,
           chainId,
           request: {
@@ -381,7 +381,7 @@ export function JsonRpcContextProvider({
         const params = [address, message];
 
         // send message
-        const signature = await client!.request<string>({
+        const signature = await signClient!.request<string>({
           topic: session!.topic,
           chainId,
           request: {
@@ -457,7 +457,7 @@ export function JsonRpcContextProvider({
         };
 
         // send message
-        const result = await client!.request<{ signature: string }>({
+        const result = await signClient!.request<{ signature: string }>({
           topic: session!.topic,
           chainId,
           request: {
@@ -506,7 +506,7 @@ export function JsonRpcContextProvider({
         const params = { signerAddress: address, signDoc };
 
         // send message
-        const result = await client!.request<{ signature: string }>({
+        const result = await signClient!.request<{ signature: string }>({
           topic: session!.topic,
           chainId,
           request: {
@@ -572,7 +572,7 @@ export function JsonRpcContextProvider({
         );
 
         try {
-          const result = await client!.request<{ signature: string }>({
+          const result = await signClient!.request<{ signature: string }>({
             chainId,
             topic: session!.topic,
             request: {
@@ -632,7 +632,7 @@ export function JsonRpcContextProvider({
         );
 
         try {
-          const result = await client!.request<{ signature: string }>({
+          const result = await signClient!.request<{ signature: string }>({
             chainId,
             topic: session!.topic,
             request: {
@@ -695,7 +695,7 @@ export function JsonRpcContextProvider({
         }
 
         try {
-          const result = await client!.request<{
+          const result = await signClient!.request<{
             payload: string;
             signature: string;
           }>({
@@ -729,7 +729,7 @@ export function JsonRpcContextProvider({
         const message = `This is an example message to be signed - ${Date.now()}`;
 
         try {
-          const result = await client!.request<{ signature: string }>({
+          const result = await signClient!.request<{ signature: string }>({
             chainId,
             topic: session!.topic,
             request: {
@@ -771,7 +771,7 @@ export function JsonRpcContextProvider({
         address: string
       ): Promise<IFormattedRpcResponse> => {
         const method = DEFAULT_NEAR_METHODS.NEAR_SIGN_AND_SEND_TRANSACTION;
-        const result = await client!.request({
+        const result = await signClient!.request({
           topic: session!.topic,
           chainId,
           request: {
@@ -810,7 +810,7 @@ export function JsonRpcContextProvider({
         address: string
       ): Promise<IFormattedRpcResponse> => {
         const method = DEFAULT_NEAR_METHODS.NEAR_SIGN_AND_SEND_TRANSACTIONS;
-        const result = await client!.request({
+        const result = await signClient!.request({
           topic: session!.topic,
           chainId,
           request: {
@@ -891,7 +891,7 @@ export function JsonRpcContextProvider({
         const transaction = testTransaction.toPlainObject();
 
         try {
-          const result = await client!.request<{ signature: Buffer }>({
+          const result = await signClient!.request<{ signature: Buffer }>({
             chainId,
             topic: session!.topic,
             request: {
@@ -972,7 +972,7 @@ export function JsonRpcContextProvider({
         ].map((transaction) => transaction.toPlainObject());
 
         try {
-          const result = await client!.request<{
+          const result = await signClient!.request<{
             signatures: { signature: Buffer }[];
           }>({
             chainId,
@@ -1027,7 +1027,7 @@ export function JsonRpcContextProvider({
         });
 
         try {
-          const result = await client!.request<{ signature: Buffer }>({
+          const result = await signClient!.request<{ signature: Buffer }>({
             chainId,
             topic: session!.topic,
             request: {
@@ -1087,7 +1087,7 @@ export function JsonRpcContextProvider({
         );
 
         try {
-          const { result } = await client!.request<{ result: any }>({
+          const { result } = await signClient!.request<{ result: any }>({
             chainId,
             topic: session!.topic,
             request: {
@@ -1118,7 +1118,7 @@ export function JsonRpcContextProvider({
         const message = 'This is a message to be signed for Tron';
 
         try {
-          const result = await client!.request<{ signature: string }>({
+          const result = await signClient!.request<{ signature: string }>({
             chainId,
             topic: session!.topic,
             request: {

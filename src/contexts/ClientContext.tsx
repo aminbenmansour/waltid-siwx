@@ -1,4 +1,4 @@
-import Client from "@walletconnect/sign-client";
+import SignClient from "@walletconnect/sign-client";
 import { PairingTypes, SessionTypes } from "@walletconnect/types";
 import { Web3Modal } from "@web3modal/standalone";
 
@@ -16,7 +16,6 @@ import { PublicKey } from "@solana/web3.js";
 
 import {
   DEFAULT_APP_METADATA,
-  DEFAULT_LOGGER,
   DEFAULT_PROJECT_ID,
   DEFAULT_RELAY_URL,
 } from "../constants";
@@ -24,25 +23,24 @@ import { AccountBalances, apiGetAccountBalance } from "../helpers";
 import { getAppMetadata, getSdkError } from "@walletconnect/utils";
 import { getPublicKeysFromAccounts } from "../helpers/solana";
 import { getRequiredNamespaces } from "../helpers/namespaces";
+import { useSharedCoreContext } from "./SharedCoreContext";
 
 /**
  * Types
  */
 interface IContext {
-  client: Client | undefined;
+  signClient: SignClient | undefined;
   session: SessionTypes.Struct | undefined;
   connect: (pairing?: { topic: string }) => Promise<void>;
   disconnect: () => Promise<void>;
   isInitializing: boolean;
   chains: string[];
-  relayerRegion: string;
   pairings: PairingTypes.Struct[];
   accounts: string[];
   solanaPublicKeys?: Record<string, PublicKey>;
   balances: AccountBalances;
   isFetchingBalances: boolean;
   setChains: any;
-  setRelayerRegion: any;
 }
 
 /**
@@ -67,7 +65,7 @@ export function ClientContextProvider({
 }: {
   children: ReactNode | ReactNode[];
 }) {
-  const [client, setClient] = useState<Client>();
+  const [signClient, setClient] = useState<SignClient>();
   const [pairings, setPairings] = useState<PairingTypes.Struct[]>([]);
   const [session, setSession] = useState<SessionTypes.Struct>();
 
@@ -80,9 +78,9 @@ export function ClientContextProvider({
   const [solanaPublicKeys, setSolanaPublicKeys] =
     useState<Record<string, PublicKey>>();
   const [chains, setChains] = useState<string[]>([]);
-  const [relayerRegion, setRelayerRegion] = useState<string>(
-    DEFAULT_RELAY_URL!
-  );
+
+  const { sharedCore, relayerRegion, setRelayerRegion } =
+    useSharedCoreContext();
 
   const reset = () => {
     setSession(undefined);
@@ -134,7 +132,7 @@ export function ClientContextProvider({
 
   const connect = useCallback(
     async (pairing: any) => {
-      if (typeof client === "undefined") {
+      if (typeof signClient === "undefined") {
         throw new Error("WalletConnect is not initialized");
       }
       console.log("connect, pairing topic is:", pairing?.topic);
@@ -145,7 +143,7 @@ export function ClientContextProvider({
           requiredNamespaces
         );
 
-        const { uri, approval } = await client.connect({
+        const { uri, approval } = await signClient.connect({
           pairingTopic: pairing?.topic,
           requiredNamespaces,
         });
@@ -164,7 +162,7 @@ export function ClientContextProvider({
         console.log("Established session:", session);
         await onSessionConnected(session);
         // Update known pairings after session is connected.
-        setPairings(client.pairing.getAll({ active: true }));
+        setPairings(signClient.pairing.getAll({ active: true }));
       } catch (e) {
         console.error(e);
         // ignore rejection
@@ -173,11 +171,11 @@ export function ClientContextProvider({
         web3Modal.closeModal();
       }
     },
-    [chains, client, onSessionConnected]
+    [chains, signClient, onSessionConnected]
   );
 
   const disconnect = useCallback(async () => {
-    if (typeof client === "undefined") {
+    if (typeof signClient === "undefined") {
       throw new Error("WalletConnect is not initialized");
     }
     if (typeof session === "undefined") {
@@ -185,7 +183,7 @@ export function ClientContextProvider({
     }
 
     try {
-      await client.disconnect({
+      await signClient.disconnect({
         topic: session.topic,
         reason: getSdkError("USER_DISCONNECTED"),
       });
@@ -195,10 +193,10 @@ export function ClientContextProvider({
       // Reset app state after disconnect.
       reset();
     }
-  }, [client, session]);
+  }, [signClient, session]);
 
   const _subscribeToEvents = useCallback(
-    async (_client: Client) => {
+    async (_client: SignClient) => {
       if (typeof _client === "undefined") {
         throw new Error("WalletConnect is not initialized");
       }
@@ -228,7 +226,7 @@ export function ClientContextProvider({
   );
 
   const _checkPersistedState = useCallback(
-    async (_client: Client) => {
+    async (_client: SignClient) => {
       if (typeof _client === "undefined") {
         throw new Error("WalletConnect is not initialized");
       }
@@ -257,11 +255,9 @@ export function ClientContextProvider({
   const createClient = useCallback(async () => {
     try {
       setIsInitializing(true);
-
-      const _client = await Client.init({
-        logger: DEFAULT_LOGGER,
-        relayUrl: relayerRegion,
-        projectId: DEFAULT_PROJECT_ID,
+      const core = sharedCore;
+      const _client = await SignClient.init({
+        core,
         metadata: getAppMetadata() || DEFAULT_APP_METADATA,
       });
 
@@ -279,10 +275,10 @@ export function ClientContextProvider({
   }, [_checkPersistedState, _subscribeToEvents, relayerRegion]);
 
   useEffect(() => {
-    if (!client || prevRelayerValue.current !== relayerRegion) {
+    if (!signClient || prevRelayerValue.current !== relayerRegion) {
       createClient();
     }
-  }, [client, createClient, relayerRegion]);
+  }, [signClient, createClient, relayerRegion]);
 
   const value = useMemo(
     () => ({
@@ -293,13 +289,11 @@ export function ClientContextProvider({
       accounts,
       solanaPublicKeys,
       chains,
-      relayerRegion,
-      client,
+      signClient,
       session,
       connect,
       disconnect,
       setChains,
-      setRelayerRegion,
     }),
     [
       pairings,
@@ -309,13 +303,11 @@ export function ClientContextProvider({
       accounts,
       solanaPublicKeys,
       chains,
-      relayerRegion,
-      client,
+      signClient,
       session,
       connect,
       disconnect,
       setChains,
-      setRelayerRegion,
     ]
   );
 
