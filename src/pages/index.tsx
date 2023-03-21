@@ -38,6 +38,7 @@ import { useJsonRpc } from "../contexts/JsonRpcContext";
 import { useChainData } from "../contexts/ChainDataContext";
 import { useWCAuthClient } from "../contexts/AuthContext";
 import Button from "../components/Button";
+import { useSharedCoreContext } from "../contexts/SharedCoreContext";
 
 // Normal import does not work here
 const { version } = require("@walletconnect/sign-client/package.json");
@@ -50,21 +51,23 @@ const Home: NextPage = () => {
   const openPingModal = () => setModal("ping");
   const openRequestModal = () => setModal("request");
 
+  // Initialize shared core between walletconnect's clients and its configs
+  const { sharedCore, relayerRegion, setRelayerRegion } =
+    useSharedCoreContext();
+
   // Initialize the WalletConnect client.
   const {
-    client,
+    signClient,
     pairings,
     session,
     connect,
     disconnect,
     chains,
-    relayerRegion,
     accounts,
     balances,
     isFetchingBalances,
     isInitializing,
     setChains,
-    setRelayerRegion,
   } = useWalletConnectClient();
 
   // Use `JsonRpcContext` to provide us with relevant RPC methods and states.
@@ -95,7 +98,7 @@ const Home: NextPage = () => {
   }, [session, modal]);
 
   const onConnect = () => {
-    if (typeof client === "undefined") {
+    if (typeof signClient === "undefined") {
       throw new Error("WalletConnect is not initialized");
     }
     // Suggest existing pairings (if any).
@@ -113,11 +116,11 @@ const Home: NextPage = () => {
   };
 
   async function emit() {
-    if (typeof client === "undefined") {
+    if (typeof signClient === "undefined") {
       throw new Error("WalletConnect is not initialized");
     }
 
-    await client.emit({
+    await signClient.emit({
       topic: session?.topic || "",
       event: { name: "chainChanged", data: {} },
       chainId: "eip155:5",
@@ -351,7 +354,7 @@ const Home: NextPage = () => {
   const renderModal = () => {
     switch (modal) {
       case "pairing":
-        if (typeof client === "undefined") {
+        if (typeof signClient === "undefined") {
           throw new Error("WalletConnect is not initialized");
         }
         return <PairingModal pairings={pairings} connect={connect} />;
