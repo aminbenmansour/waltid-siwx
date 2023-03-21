@@ -8,8 +8,9 @@ import {
   useState,
 } from "react";
 
+import { Core } from "@walletconnect/core";
 import AuthClient from "@walletconnect/auth-client";
-import { SessionTypes } from "@walletconnect/types";
+import { ICore, SessionTypes } from "@walletconnect/types";
 import {
   Cacao,
   getAppMetadata,
@@ -18,9 +19,10 @@ import {
   getDidAddress,
 } from "@walletconnect/utils";
 
-import { DEFAULT_APP_METADATA } from "../constants";
+import { DEFAULT_APP_METADATA, DEFAULT_PROJECT_ID } from "../constants";
 import { createRequestParams } from "../helpers/caip122";
 import { useWalletConnectClient } from "./ClientContext";
+import { useSharedCoreContext } from "./SharedCoreContext";
 
 /**
  * Types
@@ -59,7 +61,8 @@ export function AuthContextProvider({
   const [authUri, setUri] = useState<string>("");
   const [addresses, setAddresses] = useState<string[]>([]);
 
-  const { session } = useWalletConnectClient();
+  const { sharedCore } = useSharedCoreContext();
+  const { session, pairings } = useWalletConnectClient();
 
   const _subscribeToEvents = useCallback(async (_client: AuthClient) => {
     if (typeof _client === "undefined") {
@@ -74,30 +77,33 @@ export function AuthContextProvider({
     });
   }, []);
 
-  const createClient = useCallback(() => {
-    AuthClient.init({
-      relayUrl:
-        process.env.NEXT_PUBLIC_RELAY_URL || "wss://relay.walletconnect.com",
-      projectId: process.env.NEXT_PUBLIC_PROJECT_ID!,
-      metadata: getAppMetadata() || DEFAULT_APP_METADATA,
-    })
-      .then(async (authClient) => {
-        setClient(authClient);
-        setHasInitialized(true);
-        console.log("CREATED AUTH CLIENT: ", authClient);
-        await _subscribeToEvents(authClient);
-      })
-      .catch(() => {
-        setHasInitialized(false);
-        console.error;
+  const createClient = useCallback(async () => {
+    const metadata = getAppMetadata() || DEFAULT_APP_METADATA;
+    const projectId = DEFAULT_PROJECT_ID;
+
+    try {
+      if (typeof sharedCore === "undefined") return;
+
+      const authClient = await AuthClient.init({
+        core: sharedCore,
+        metadata,
+        projectId,
       });
+      setHasInitialized(true);
+      await _subscribeToEvents(authClient);
+      console.log("CREATED AUTH CLIENT: ", authClient);
+    } catch (error) {
+      console.log(error);
+    }
   }, [_subscribeToEvents]);
 
   const signIn = useCallback(
     (_session: SessionTypes.Struct) => {
       if (!authClient) return;
 
-      const topic: string = _session.topic;
+      const topic: string = /*currentTopic();*/ "";
+
+      // const topic: string = _session.topic;
 
       Object.keys(_session.namespaces).map((namespace) => {
         console.log(`Sign In to Namespace: ${namespace}`);
@@ -107,7 +113,6 @@ export function AuthContextProvider({
             account.split(":")[2],
           ];
           const request = createRequestParams(chainId);
-          console.log("")
           const response: Cacao | void = await authClient
             .request(request, {
               topic,
@@ -116,7 +121,10 @@ export function AuthContextProvider({
               if (uri) {
                 setUri(uri);
                 setAddresses((addresses) => {
-                  console.log("This Address is AUTHENTICATED WIWOUU: ", address)
+                  console.log(
+                    "This Address is AUTHENTICATED WIWOUU: ",
+                    address
+                  );
                   addresses.push(address);
                   return addresses;
                 });
