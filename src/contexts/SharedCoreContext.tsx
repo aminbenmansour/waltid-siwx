@@ -1,5 +1,12 @@
 import { Core } from "@walletconnect/core";
-import { ICore } from "@walletconnect/types";
+import {
+  calcExpiry,
+  formatUri,
+  generateRandomBytes32,
+} from "@walletconnect/utils";
+import { ICore, IPairing, IStore, PairingTypes } from "@walletconnect/types";
+import { FIVE_MINUTES } from "@walletconnect/time";
+
 import {
   createContext,
   ReactNode,
@@ -9,6 +16,7 @@ import {
   useMemo,
   useState,
 } from "react";
+
 import {
   DEFAULT_LOGGER,
   DEFAULT_PROJECT_ID,
@@ -37,6 +45,8 @@ export const SharedCoreContextProvider = ({
 }: {
   children: ReactNode | ReactNode[];
 }) => {
+  let pairings: IStore<string, PairingTypes.Struct>;
+
   const [sharedCore, setSharedCore] = useState<ICore>();
   const [relayerRegion, setRelayerRegion] = useState<string>(
     DEFAULT_RELAY_URL!
@@ -50,6 +60,27 @@ export const SharedCoreContextProvider = ({
     });
     setSharedCore(core);
   }, [relayerRegion]);
+
+  const createPairingProposal: IPairing["create"] = useCallback(async () => {
+    const symKey = generateRandomBytes32();
+    const topic = await sharedCore!.crypto.setSymKey(symKey);
+    const expiry = calcExpiry(FIVE_MINUTES);
+    const relay = { protocol: process.env.RELAYER_DEFAULT_PROTOCOL || "irn" };
+    const pairing = { topic, expiry, relay, active: false };
+    const uri = formatUri({
+      protocol: sharedCore!.protocol,
+      version: sharedCore!.version,
+      topic,
+      symKey,
+      relay,
+    });
+
+    await sharedCore!.relayer.subscribe(topic);
+    pairings.set(topic, pairing);
+    sharedCore!.expirer.set(topic, expiry);
+
+    return { topic, uri };
+  }, [sharedCore]);
 
   const value = useMemo(
     () => ({
@@ -77,7 +108,7 @@ export const useSharedCoreContext = () => {
   const context = useContext(SharedCoreContext);
   if (context === undefined) {
     throw new Error(
-      "useSharedCoreContext must be used within a ClientContextProvider"
+      "useSharedCoreContext must be used within a SharedCoreContextProvider"
     );
   }
   return context;

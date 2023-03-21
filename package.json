@@ -19,6 +19,7 @@
     "@walletconnect/auth-client": "^2.0.3",
     "@walletconnect/encoding": "^1.0.1",
     "@walletconnect/sign-client": "2.4.10",
+    "@walletconnect/time": "^1.0.2",
     "@walletconnect/types": "2.5.0",
     "@walletconnect/utils": "2.4.10",
     "@web3modal/standalone": "2.2.0",
