@@ -8,8 +8,9 @@ import {
   useState,
 } from "react";
 
+import { Core } from "@walletconnect/core";
 import AuthClient from "@walletconnect/auth-client";
-import { SessionTypes } from "@walletconnect/types";
+import { ICore, SessionTypes } from "@walletconnect/types";
 import {
   Cacao,
   getAppMetadata,
@@ -21,7 +22,7 @@ import {
 import { DEFAULT_APP_METADATA, DEFAULT_PROJECT_ID } from "../constants";
 import { createRequestParams } from "../helpers/caip122";
 import { useWalletConnectClient } from "./ClientContext";
-import { core, getTopic } from "../shared/core";
+import { useSharedCoreContext } from "./SharedCoreContext";
 
 /**
  * Types
@@ -60,6 +61,7 @@ export function AuthContextProvider({
   const [authUri, setUri] = useState<string>("");
   const [addresses, setAddresses] = useState<string[]>([]);
 
+  const { sharedCore } = useSharedCoreContext();
   const { session, pairings } = useWalletConnectClient();
 
   const _subscribeToEvents = useCallback(async (_client: AuthClient) => {
@@ -80,22 +82,27 @@ export function AuthContextProvider({
     const projectId = DEFAULT_PROJECT_ID;
 
     try {
-      const authClient = await AuthClient.init({ core, metadata, projectId });
+      if (typeof sharedCore === "undefined") return;
+
+      const authClient = await AuthClient.init({
+        core: sharedCore,
+        metadata,
+        projectId,
+      });
       setHasInitialized(true);
       await _subscribeToEvents(authClient);
       console.log("CREATED AUTH CLIENT: ", authClient);
     } catch (error) {
-      console.log(error)
+      console.log(error);
     }
-
   }, [_subscribeToEvents]);
 
   const signIn = useCallback(
     (_session: SessionTypes.Struct) => {
       if (!authClient) return;
 
-      const topic: string = getTopic();
-      
+      const topic: string = /*currentTopic();*/ "";
+
       // const topic: string = _session.topic;
 
       Object.keys(_session.namespaces).map((namespace) => {

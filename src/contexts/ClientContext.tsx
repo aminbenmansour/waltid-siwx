@@ -23,7 +23,7 @@ import { AccountBalances, apiGetAccountBalance } from "../helpers";
 import { getAppMetadata, getSdkError } from "@walletconnect/utils";
 import { getPublicKeysFromAccounts } from "../helpers/solana";
 import { getRequiredNamespaces } from "../helpers/namespaces";
-import { core } from "../shared/core";
+import { useSharedCoreContext } from "./SharedCoreContext";
 
 /**
  * Types
@@ -35,14 +35,12 @@ interface IContext {
   disconnect: () => Promise<void>;
   isInitializing: boolean;
   chains: string[];
-  relayerRegion: string;
   pairings: PairingTypes.Struct[];
   accounts: string[];
   solanaPublicKeys?: Record<string, PublicKey>;
   balances: AccountBalances;
   isFetchingBalances: boolean;
   setChains: any;
-  setRelayerRegion: any;
 }
 
 /**
@@ -80,9 +78,9 @@ export function ClientContextProvider({
   const [solanaPublicKeys, setSolanaPublicKeys] =
     useState<Record<string, PublicKey>>();
   const [chains, setChains] = useState<string[]>([]);
-  const [relayerRegion, setRelayerRegion] = useState<string>(
-    DEFAULT_RELAY_URL!
-  );
+
+  const { sharedCore, relayerRegion, setRelayerRegion } =
+    useSharedCoreContext();
 
   const reset = () => {
     setSession(undefined);
@@ -257,18 +255,11 @@ export function ClientContextProvider({
   const createClient = useCallback(async () => {
     try {
       setIsInitializing(true);
-
+      const core = sharedCore;
       const _client = await SignClient.init({
         core,
         metadata: getAppMetadata() || DEFAULT_APP_METADATA,
       });
-
-      // const _client = await SignClient.init({
-      //   logger: DEFAULT_LOGGER,
-      //   relayUrl: relayerRegion,
-      //   projectId: DEFAULT_PROJECT_ID,
-      //   metadata: getAppMetadata() || DEFAULT_APP_METADATA,
-      // });
 
       console.log("CREATED CLIENT: ", _client);
       console.log("relayerRegion ", relayerRegion);
@@ -298,13 +289,11 @@ export function ClientContextProvider({
       accounts,
       solanaPublicKeys,
       chains,
-      relayerRegion,
       signClient,
       session,
       connect,
       disconnect,
       setChains,
-      setRelayerRegion,
     }),
     [
       pairings,
@@ -314,13 +303,11 @@ export function ClientContextProvider({
       accounts,
       solanaPublicKeys,
       chains,
-      relayerRegion,
       signClient,
       session,
       connect,
       disconnect,
       setChains,
-      setRelayerRegion,
     ]
   );
 
