@@ -15,6 +15,11 @@ import {
   PairingTypes,
 } from "@walletconnect/types";
 import { FIVE_MINUTES } from "@walletconnect/time";
+import {
+  generateChildLogger,
+  getDefaultLoggerOptions,
+  Logger,
+} from "@walletconnect/logger";
 
 import EventEmitter from "events";
 
@@ -28,11 +33,18 @@ import {
   useState,
 } from "react";
 
+import pino from "pino";
+
+import { Store } from "../controllers/store";
+
 import {
+  CORE_DEFAULT,
+  CORE_STORAGE_PREFIX,
   DEFAULT_LOGGER,
   DEFAULT_PROJECT_ID,
   DEFAULT_RELAY_URL,
   EXPIRER_EVENTS,
+  PAIRING_CONTEXT,
 } from "../constants";
 
 /**
@@ -57,7 +69,14 @@ export const SharedCoreContextProvider = ({
 }: {
   children: ReactNode | ReactNode[];
 }) => {
+  const log: Logger = pino(
+    getDefaultLoggerOptions({ level: CORE_DEFAULT.logger })
+  );
+
+  const [name] = useState<string>(PAIRING_CONTEXT);
+  const [storagePrefix] = useState<string>(CORE_STORAGE_PREFIX);
   const [events] = useState(new EventEmitter());
+  const [logger] = useState(generateChildLogger(log, name));
 
   const [sharedCore, setSharedCore] = useState<ICore>();
   const [pairings, setPairings] =
@@ -95,7 +114,20 @@ export const SharedCoreContextProvider = ({
     sharedCore!.expirer.set(topic, expiry);
 
     return { topic, uri };
-  }, [sharedCore]);
+  }, [sharedCore, pairings]);
+
+  const _deletePairing: IPairingPrivate["deletePairing"] = useCallback(
+    async (topic, expirerHasDeleted) => {
+      // Await the unsubscribe first to avoid deleting the symKey too early below.
+      await sharedCore!.relayer.unsubscribe(topic);
+      await Promise.all([
+        pairings!.delete(topic, getSdkError("USER_DISCONNECTED")),
+        sharedCore!.crypto.deleteSymKey(topic),
+        expirerHasDeleted ? Promise.resolve() : sharedCore!.expirer.del(topic),
+      ]);
+    },
+    [sharedCore, pairings]
+  );
 
   const registerExpirerEvents = useCallback(() => {
     sharedCore!.expirer.on(
@@ -110,20 +142,36 @@ export const SharedCoreContextProvider = ({
         }
       }
     );
-  }, []);
+  }, [sharedCore, pairings, events, _deletePairing]);
 
-  const _deletePairing: IPairingPrivate["deletePairing"] = useCallback(
-    async (topic, expirerHasDeleted) => {
-      // Await the unsubscribe first to avoid deleting the symKey too early below.
-      await sharedCore!.relayer.unsubscribe(topic);
-      await Promise.all([
-        pairings!.delete(topic, getSdkError("USER_DISCONNECTED")),
-        sharedCore!.crypto.deleteSymKey(topic),
-        expirerHasDeleted ? Promise.resolve() : sharedCore!.expirer.del(topic),
-      ]);
-    },
-    []
-  );
+  const initPairing: IPairing["init"] = useCallback(async () => {
+    if (!initialized) {
+      await pairings!.init();
+      registerExpirerEvents();
+      setInitialized(true);
+    }
+  }, [initialized, pairings, registerExpirerEvents]);
+
+  useEffect(() => {
+    if (typeof sharedCore === "undefined") {
+      initSharedCore();
+      console.log("WalletConnect's Core is initialized");
+    }
+    if (!initialized) {
+      setPairings(new Store(sharedCore!, logger, name, storagePrefix));
+      initPairing();
+      setInitialized(true);
+      console.log("WalletConnect's Pairing API is initialized");
+    }
+  }, [
+    sharedCore,
+    initialized,
+    logger,
+    name,
+    storagePrefix,
+    initSharedCore,
+    initPairing,
+  ]);
 
   const value = useMemo(
     () => ({
@@ -133,14 +181,6 @@ export const SharedCoreContextProvider = ({
     }),
     [sharedCore, relayerRegion, setRelayerRegion]
   );
-
-  useEffect(() => {
-    if (typeof sharedCore === "undefined") {
-      initSharedCore();
-      console.log("WalletConnect's Core is initialized");
-    }
-  }, [sharedCore, initSharedCore]);
-
   return (
     <SharedCoreContext.Provider value={{ ...value }}>
       {children}
