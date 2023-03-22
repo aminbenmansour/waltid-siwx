@@ -1,6 +1,7 @@
 import { Core } from "@walletconnect/core";
 import {
   calcExpiry,
+  createDelayedPromise,
   engineEvent,
   formatUri,
   generateRandomBytes32,
@@ -11,6 +12,7 @@ import {
   isValidString,
   isValidUrl,
   parseExpirerTarget,
+  parseUri,
   TYPE_1,
 } from "@walletconnect/utils";
 import {
@@ -32,7 +34,7 @@ import {
   PairingTypes,
   RelayerTypes,
 } from "@walletconnect/types";
-import { FIVE_MINUTES } from "@walletconnect/time";
+import { FIVE_MINUTES, THIRTY_DAYS } from "@walletconnect/time";
 import {
   generateChildLogger,
   getDefaultLoggerOptions,
@@ -137,6 +139,97 @@ export const SharedCoreContextProvider = ({
     return { topic, uri };
   }, [sharedCore, pairings]);
 
+  const init: IPairing["init"] = async () => {
+    if (!initialized) {
+      await pairings!.init();
+      await cleanup();
+      registerRelayerEvents();
+      registerExpirerEvents();
+      setInitialized(true);
+      logger.trace(`Initialized`);
+    }
+  };
+
+  const register: IPairing["register"] = ({ methods }) => {
+    isInitialized();
+    setRegisteredMethods([...new Set([...registeredMethods, ...methods])]);
+  };
+
+  const pair: IPairing["pair"] = async (params) => {
+    isInitialized();
+    isValidPair(params);
+    const { topic, symKey, relay } = parseUri(params.uri);
+
+    if (pairings!.keys.includes(topic)) {
+      throw new Error(`Pairing already exists: ${topic}`);
+    }
+
+    if (sharedCore!.crypto.hasKeys(topic)) {
+      throw new Error(`Keychain already exists: ${topic}`);
+    }
+
+    const expiry = calcExpiry(FIVE_MINUTES);
+    const pairing = { topic, relay, expiry, active: false };
+    await pairings!.set(topic, pairing);
+    await sharedCore!.crypto.setSymKey(symKey, topic);
+    await sharedCore!.relayer.subscribe(topic, { relay });
+    sharedCore!.expirer.set(topic, expiry);
+
+    if (params.activatePairing) {
+      await activate({ topic });
+    }
+
+    return pairing;
+  };
+
+  const activate: IPairing["activate"] = async ({ topic }) => {
+    isInitialized();
+    const expiry = calcExpiry(THIRTY_DAYS);
+    await pairings!.update(topic, { active: true, expiry });
+    sharedCore!.expirer.set(topic, expiry);
+  };
+
+  const ping: IPairing["ping"] = async (params) => {
+    isInitialized();
+    await isValidPing(params);
+    const { topic } = params;
+    if (pairings!.keys.includes(topic)) {
+      const id = await sendRequest(topic, "wc_pairingPing", {});
+      const { done, resolve, reject } = createDelayedPromise<void>();
+      events.once(engineEvent("pairing_ping", id), ({ error }) => {
+        if (error) reject(error);
+        else resolve();
+      });
+      await done();
+    }
+  };
+
+  const updateExpiry: IPairing["updateExpiry"] = async ({ topic, expiry }) => {
+    isInitialized();
+    await pairings!.update(topic, { expiry });
+  };
+
+  const updateMetadata: IPairing["updateMetadata"] = async ({ topic, metadata }) => {
+    isInitialized();
+    await pairings!.update(topic, { peerMetadata: metadata });
+  };
+
+  const getPairings: IPairing["getPairings"] = () => {
+    isInitialized();
+    return pairings!.values;
+  };
+
+  const disconnect: IPairing["disconnect"] = async (params) => {
+    isInitialized();
+    await isValidDisconnect(params);
+    const { topic } = params;
+    if (pairings!.keys.includes(topic)) {
+      await sendRequest(topic, "wc_pairingDelete", getSdkError("USER_DISCONNECTED"));
+      await deletePairing(topic);
+    }
+  };
+  
+  // ---- Expirer Events ----
   const registerExpirerEvents = useCallback(() => {
     sharedCore!.expirer.on(
       EXPIRER_EVENTS.expired,
@@ -151,15 +244,7 @@ export const SharedCoreContextProvider = ({
       }
     );
   }, [sharedCore, pairings, events]);
-
-  const initPairing: IPairing["init"] = useCallback(async () => {
-    if (!initialized) {
-      await pairings!.init();
-      registerExpirerEvents();
-      setInitialized(true);
-      logger.trace(`Initialized`);
-    }
-  }, [initialized, pairings, registerExpirerEvents]);
+  // ------------------------
 
   const onPairingPingRequest: IPairingPrivate["onPairingPingRequest"] = async (
     topic,
@@ -290,6 +375,8 @@ export const SharedCoreContextProvider = ({
     );
   }, []);
 
+
+  
   // ---- Private Helpers ----
   const sendRequest: IPairingPrivate["sendRequest"] = async (
     topic,
@@ -437,7 +524,7 @@ export const SharedCoreContextProvider = ({
     }
     if (!initialized) {
       setPairings(new Store(sharedCore!, logger, name, storagePrefix));
-      initPairing();
+      init();
       setInitialized(true);
       console.log("WalletConnect's Pairing API is initialized");
     }
@@ -448,7 +535,7 @@ export const SharedCoreContextProvider = ({
     name,
     storagePrefix,
     initSharedCore,
-    initPairing,
+    init,
   ]);
 
   const value = useMemo(
