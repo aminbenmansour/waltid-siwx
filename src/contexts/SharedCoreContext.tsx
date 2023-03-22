@@ -15,6 +15,8 @@ import {
 } from "@walletconnect/utils";
 import {
   formatJsonRpcError,
+  formatJsonRpcRequest,
+  formatJsonRpcResult,
   isJsonRpcError,
   isJsonRpcRequest,
   isJsonRpcResponse,
@@ -135,19 +137,6 @@ export const SharedCoreContextProvider = ({
     return { topic, uri };
   }, [sharedCore, pairings]);
 
-  const _deletePairing: IPairingPrivate["deletePairing"] = useCallback(
-    async (topic, expirerHasDeleted) => {
-      // Await the unsubscribe first to avoid deleting the symKey too early below.
-      await sharedCore!.relayer.unsubscribe(topic);
-      await Promise.all([
-        pairings!.delete(topic, getSdkError("USER_DISCONNECTED")),
-        sharedCore!.crypto.deleteSymKey(topic),
-        expirerHasDeleted ? Promise.resolve() : sharedCore!.expirer.del(topic),
-      ]);
-    },
-    [sharedCore, pairings]
-  );
-
   const registerExpirerEvents = useCallback(() => {
     sharedCore!.expirer.on(
       EXPIRER_EVENTS.expired,
@@ -155,13 +144,13 @@ export const SharedCoreContextProvider = ({
         const { topic } = parseExpirerTarget(event.target);
         if (topic) {
           if (pairings!.keys.includes(topic)) {
-            await _deletePairing(topic, true);
+            await deletePairing(topic, true);
             events.emit("pairing_expire", { topic });
           }
         }
       }
     );
-  }, [sharedCore, pairings, events, _deletePairing]);
+  }, [sharedCore, pairings, events]);
 
   const initPairing: IPairing["init"] = useCallback(async () => {
     if (!initialized) {
@@ -171,19 +160,6 @@ export const SharedCoreContextProvider = ({
       logger.trace(`Initialized`);
     }
   }, [initialized, pairings, registerExpirerEvents]);
-
-  const sendError: IPairingPrivate["sendError"] = async (id, topic, error) => {
-    const payload = formatJsonRpcError(id, error);
-    const message = await sharedCore!.crypto.encode(topic, payload);
-    const record = await sharedCore!.history.get(topic, id);
-    const method = record.request.method as PairingJsonRpcTypes.WcMethod;
-    const opts: RelayerTypes.PublishOptions = PAIRING_RPC_OPTS[method]
-      ? PAIRING_RPC_OPTS[method].res
-      : PAIRING_RPC_OPTS.unregistered_method.res;
-
-    await sharedCore!.relayer.publish(topic, message, opts);
-    await sharedCore!.history.resolve(payload);
-  };
 
   const onPairingPingRequest: IPairingPrivate["onPairingPingRequest"] = async (
     topic,
@@ -205,7 +181,7 @@ export const SharedCoreContextProvider = ({
       const { id } = payload;
       try {
         isValidDisconnect({ topic });
-        await _deletePairing(topic);
+        await deletePairing(topic);
         events.emit("pairing_delete", { id, topic });
       } catch (err: any) {
         await sendError(id, topic, err);
@@ -314,6 +290,78 @@ export const SharedCoreContextProvider = ({
     );
   }, []);
 
+  // ---- Private Helpers ----
+  const sendRequest: IPairingPrivate["sendRequest"] = async (
+    topic,
+    method,
+    params
+  ) => {
+    const payload = formatJsonRpcRequest(method, params);
+    const message = await sharedCore!.crypto.encode(topic, payload);
+    const opts = PAIRING_RPC_OPTS[method].req;
+    sharedCore!.history.set(topic, payload);
+    await sharedCore!.relayer.publish(topic, message, opts);
+
+    return payload.id;
+  };
+
+  const sendResult: IPairingPrivate["sendResult"] = async (
+    id,
+    topic,
+    result
+  ) => {
+    const payload = formatJsonRpcResult(id, result);
+    const message = await sharedCore!.crypto.encode(topic, payload);
+    const record = await sharedCore!.history.get(topic, id);
+    const opts =
+      PAIRING_RPC_OPTS[record.request.method as PairingJsonRpcTypes.WcMethod]
+        .res;
+    await sharedCore!.relayer.publish(topic, message, opts);
+    await sharedCore!.history.resolve(payload);
+  };
+
+  const sendError: IPairingPrivate["sendError"] = async (id, topic, error) => {
+    const payload = formatJsonRpcError(id, error);
+    const message = await sharedCore!.crypto.encode(topic, payload);
+    const record = await sharedCore!.history.get(topic, id);
+    const method = record.request.method as PairingJsonRpcTypes.WcMethod;
+    const opts: RelayerTypes.PublishOptions = PAIRING_RPC_OPTS[method]
+      ? PAIRING_RPC_OPTS[method].res
+      : PAIRING_RPC_OPTS.unregistered_method.res;
+
+    await sharedCore!.relayer.publish(topic, message, opts);
+    await sharedCore!.history.resolve(payload);
+  };
+
+  const deletePairing: IPairingPrivate["deletePairing"] = async (
+    topic,
+    expirerHasDeleted
+  ) => {
+    // Await the unsubscribe first to avoid deleting the symKey too early below.
+    await sharedCore!.relayer.unsubscribe(topic);
+    await Promise.all([
+      pairings!.delete(topic, getSdkError("USER_DISCONNECTED")),
+      sharedCore!.crypto.deleteSymKey(topic),
+      expirerHasDeleted ? Promise.resolve() : sharedCore!.expirer.del(topic),
+    ]);
+  };
+
+  const isInitialized = () => {
+    if (!initialized) {
+      const { message } = getInternalError("NOT_INITIALIZED", name);
+      throw new Error(message);
+    }
+  };
+
+  const cleanup = async () => {
+    const expiredPairings = pairings!
+      .getAll()
+      .filter((pairing) => isExpired(pairing.expiry));
+    await Promise.all(
+      expiredPairings.map((pairing) => deletePairing(pairing.topic))
+    );
+  };
+
   // ---- Validation Helpers ----
   const isValidPair = (params: { uri: string }) => {
     if (!isValidParams(params)) {
@@ -372,7 +420,7 @@ export const SharedCoreContextProvider = ({
       throw new Error(message);
     }
     if (isExpired(pairings!.get(topic).expiry)) {
-      await _deletePairing(topic);
+      await deletePairing(topic);
       const { message } = getInternalError(
         "EXPIRED",
         `pairing topic: ${topic}`
@@ -381,7 +429,7 @@ export const SharedCoreContextProvider = ({
     }
   };
   // ----------------------------
-  
+
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
