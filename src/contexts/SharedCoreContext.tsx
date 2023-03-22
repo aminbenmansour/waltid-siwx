@@ -3,9 +3,20 @@ import {
   calcExpiry,
   formatUri,
   generateRandomBytes32,
+  getSdkError,
+  parseExpirerTarget,
 } from "@walletconnect/utils";
-import { ICore, IPairing, IStore, PairingTypes } from "@walletconnect/types";
+import {
+  ExpirerTypes,
+  ICore,
+  IPairing,
+  IPairingPrivate,
+  IStore,
+  PairingTypes,
+} from "@walletconnect/types";
 import { FIVE_MINUTES } from "@walletconnect/time";
+
+import EventEmitter from "events";
 
 import {
   createContext,
@@ -21,6 +32,7 @@ import {
   DEFAULT_LOGGER,
   DEFAULT_PROJECT_ID,
   DEFAULT_RELAY_URL,
+  EXPIRER_EVENTS,
 } from "../constants";
 
 /**
@@ -45,9 +57,12 @@ export const SharedCoreContextProvider = ({
 }: {
   children: ReactNode | ReactNode[];
 }) => {
-  let pairings: IStore<string, PairingTypes.Struct>;
+  const [events] = useState(new EventEmitter());
 
   const [sharedCore, setSharedCore] = useState<ICore>();
+  const [pairings, setPairings] =
+    useState<IStore<string, PairingTypes.Struct>>();
+  const [initialized, setInitialized] = useState<boolean>(false);
   const [relayerRegion, setRelayerRegion] = useState<string>(
     DEFAULT_RELAY_URL!
   );
@@ -76,11 +91,39 @@ export const SharedCoreContextProvider = ({
     });
 
     await sharedCore!.relayer.subscribe(topic);
-    pairings.set(topic, pairing);
+    pairings!.set(topic, pairing);
     sharedCore!.expirer.set(topic, expiry);
 
     return { topic, uri };
   }, [sharedCore]);
+
+  const registerExpirerEvents = useCallback(() => {
+    sharedCore!.expirer.on(
+      EXPIRER_EVENTS.expired,
+      async (event: ExpirerTypes.Expiration) => {
+        const { topic } = parseExpirerTarget(event.target);
+        if (topic) {
+          if (pairings!.keys.includes(topic)) {
+            await _deletePairing(topic, true);
+            events.emit("pairing_expire", { topic });
+          }
+        }
+      }
+    );
+  }, []);
+
+  const _deletePairing: IPairingPrivate["deletePairing"] = useCallback(
+    async (topic, expirerHasDeleted) => {
+      // Await the unsubscribe first to avoid deleting the symKey too early below.
+      await sharedCore!.relayer.unsubscribe(topic);
+      await Promise.all([
+        pairings!.delete(topic, getSdkError("USER_DISCONNECTED")),
+        sharedCore!.crypto.deleteSymKey(topic),
+        expirerHasDeleted ? Promise.resolve() : sharedCore!.expirer.del(topic),
+      ]);
+    },
+    []
+  );
 
   const value = useMemo(
     () => ({
@@ -94,6 +137,7 @@ export const SharedCoreContextProvider = ({
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
+      console.log("WalletConnect's Core is initialized");
     }
   }, [sharedCore, initSharedCore]);
 
