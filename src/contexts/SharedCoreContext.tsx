@@ -4,7 +4,12 @@ import {
   engineEvent,
   formatUri,
   generateRandomBytes32,
+  getInternalError,
   getSdkError,
+  isExpired,
+  isValidParams,
+  isValidString,
+  isValidUrl,
   parseExpirerTarget,
   TYPE_1,
 } from "@walletconnect/utils";
@@ -242,7 +247,10 @@ export const SharedCoreContextProvider = ({
     }
   };
 
-  const onPairingPingResponse: IPairingPrivate["onPairingPingResponse"] = (_topic, payload) => {
+  const onPairingPingResponse: IPairingPrivate["onPairingPingResponse"] = (
+    _topic,
+    payload
+  ) => {
     const { id } = payload;
     // put at the end of the stack to avoid a race condition
     // where pairing_ping listener is not yet initialized
@@ -255,11 +263,12 @@ export const SharedCoreContextProvider = ({
     }, 500);
   };
 
-  const onUnknownRpcMethodResponse: IPairingPrivate["onUnknownRpcMethodResponse"] = (method) => {
-    // Ignore if the implementing client has registered this method as known.
-    if (registeredMethods.includes(method)) return;
-    logger.error(getSdkError("WC_METHOD_UNSUPPORTED", method));
-  };
+  const onUnknownRpcMethodResponse: IPairingPrivate["onUnknownRpcMethodResponse"] =
+    (method) => {
+      // Ignore if the implementing client has registered this method as known.
+      if (registeredMethods.includes(method)) return;
+      logger.error(getSdkError("WC_METHOD_UNSUPPORTED", method));
+    };
 
   const onRelayEventResponse: IPairingPrivate["onRelayEventResponse"] = async (
     event
@@ -304,6 +313,75 @@ export const SharedCoreContextProvider = ({
       }
     );
   }, []);
+
+  // ---- Validation Helpers ----
+  const isValidPair = (params: { uri: string }) => {
+    if (!isValidParams(params)) {
+      const { message } = getInternalError(
+        "MISSING_OR_INVALID",
+        `pair() params: ${params}`
+      );
+      throw new Error(message);
+    }
+    if (!isValidUrl(params.uri)) {
+      const { message } = getInternalError(
+        "MISSING_OR_INVALID",
+        `pair() uri: ${params.uri}`
+      );
+      throw new Error(message);
+    }
+  };
+
+  const isValidPing = async (params: { topic: string }) => {
+    if (!isValidParams(params)) {
+      const { message } = getInternalError(
+        "MISSING_OR_INVALID",
+        `ping() params: ${params}`
+      );
+      throw new Error(message);
+    }
+    const { topic } = params;
+    await isValidPairingTopic(topic);
+  };
+
+  const isValidDisconnect = async (params: { topic: string }) => {
+    if (!isValidParams(params)) {
+      const { message } = getInternalError(
+        "MISSING_OR_INVALID",
+        `disconnect() params: ${params}`
+      );
+      throw new Error(message);
+    }
+    const { topic } = params;
+    await isValidPairingTopic(topic);
+  };
+
+  const isValidPairingTopic = async (topic: any) => {
+    if (!isValidString(topic, false)) {
+      const { message } = getInternalError(
+        "MISSING_OR_INVALID",
+        `pairing topic should be a string: ${topic}`
+      );
+      throw new Error(message);
+    }
+    if (!pairings!.keys.includes(topic)) {
+      const { message } = getInternalError(
+        "NO_MATCHING_KEY",
+        `pairing topic doesn't exist: ${topic}`
+      );
+      throw new Error(message);
+    }
+    if (isExpired(pairings!.get(topic).expiry)) {
+      await _deletePairing(topic);
+      const { message } = getInternalError(
+        "EXPIRED",
+        `pairing topic: ${topic}`
+      );
+      throw new Error(message);
+    }
+  };
+  // ----------------------------
+  
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
