@@ -5,14 +5,21 @@ import {
   generateRandomBytes32,
   getSdkError,
   parseExpirerTarget,
+  TYPE_1,
 } from "@walletconnect/utils";
+import {
+  isJsonRpcRequest,
+  isJsonRpcResponse,
+} from "@walletconnect/jsonrpc-utils";
 import {
   ExpirerTypes,
   ICore,
   IPairing,
   IPairingPrivate,
   IStore,
+  PairingJsonRpcTypes,
   PairingTypes,
+  RelayerTypes,
 } from "@walletconnect/types";
 import { FIVE_MINUTES } from "@walletconnect/time";
 import {
@@ -45,6 +52,7 @@ import {
   DEFAULT_RELAY_URL,
   EXPIRER_EVENTS,
   PAIRING_CONTEXT,
+  RELAYER_EVENTS,
 } from "../constants";
 
 /**
@@ -72,7 +80,7 @@ export const SharedCoreContextProvider = ({
   const log: Logger = pino(
     getDefaultLoggerOptions({ level: CORE_DEFAULT.logger })
   );
-
+  const ignoredPayloadTypes = [TYPE_1];
   const [name] = useState<string>(PAIRING_CONTEXT);
   const [storagePrefix] = useState<string>(CORE_STORAGE_PREFIX);
   const [events] = useState(new EventEmitter());
@@ -149,9 +157,71 @@ export const SharedCoreContextProvider = ({
       await pairings!.init();
       registerExpirerEvents();
       setInitialized(true);
+      logger.trace(`Initialized`);
     }
   }, [initialized, pairings, registerExpirerEvents]);
 
+  const onRelayEventRequest: IPairingPrivate["onRelayEventRequest"] = (
+    event
+  ) => {
+    const { topic, payload } = event;
+    const reqMethod = payload.method as PairingJsonRpcTypes.WcMethod;
+
+    if (!pairings!.keys.includes(topic)) return;
+
+    switch (reqMethod) {
+      case "wc_pairingPing":
+        return onPairingPingRequest(topic, payload);
+      case "wc_pairingDelete":
+        return onPairingDeleteRequest(topic, payload);
+      default:
+        return onUnknownRpcMethodRequest(topic, payload);
+    }
+  };
+
+  const onRelayEventResponse: IPairingPrivate["onRelayEventResponse"] = async (
+    event
+  ) => {
+    const { topic, payload } = event;
+    const record = await sharedCore!.history.get(topic, payload.id);
+    const resMethod = record.request.method as PairingJsonRpcTypes.WcMethod;
+
+    if (!pairings!.keys.includes(topic)) return;
+
+    switch (resMethod) {
+      case "wc_pairingPing":
+        return onPairingPingResponse(topic, payload);
+      default:
+        return onUnknownRpcMethodResponse(resMethod);
+    }
+  };
+
+  const registerRelayerEvents = useCallback(() => {
+    sharedCore!.relayer.on(
+      RELAYER_EVENTS.message,
+      async (event: RelayerTypes.MessageEvent) => {
+        const { topic, message } = event;
+
+        // messages of certain types should be ignored as they are handled by their respective SDKs
+        if (
+          ignoredPayloadTypes.includes(
+            sharedCore!.crypto.getPayloadType(message)
+          )
+        ) {
+          return;
+        }
+
+        const payload = await sharedCore!.crypto.decode(topic, message);
+        if (isJsonRpcRequest(payload)) {
+          sharedCore!.history.set(topic, payload);
+          onRelayEventRequest({ topic, payload });
+        } else if (isJsonRpcResponse(payload)) {
+          await sharedCore!.history.resolve(payload);
+          onRelayEventResponse({ topic, payload });
+        }
+      }
+    );
+  }, []);
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
