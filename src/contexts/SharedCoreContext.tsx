@@ -1,6 +1,7 @@
 import { Core } from "@walletconnect/core";
 import {
   calcExpiry,
+  engineEvent,
   formatUri,
   generateRandomBytes32,
   getSdkError,
@@ -8,8 +9,11 @@ import {
   TYPE_1,
 } from "@walletconnect/utils";
 import {
+  formatJsonRpcError,
+  isJsonRpcError,
   isJsonRpcRequest,
   isJsonRpcResponse,
+  isJsonRpcResult,
 } from "@walletconnect/jsonrpc-utils";
 import {
   ExpirerTypes,
@@ -52,6 +56,7 @@ import {
   DEFAULT_RELAY_URL,
   EXPIRER_EVENTS,
   PAIRING_CONTEXT,
+  PAIRING_RPC_OPTS,
   RELAYER_EVENTS,
 } from "../constants";
 
@@ -90,6 +95,7 @@ export const SharedCoreContextProvider = ({
   const [pairings, setPairings] =
     useState<IStore<string, PairingTypes.Struct>>();
   const [initialized, setInitialized] = useState<boolean>(false);
+  const [registeredMethods, setRegisteredMethods] = useState<string[]>([]);
   const [relayerRegion, setRelayerRegion] = useState<string>(
     DEFAULT_RELAY_URL!
   );
@@ -161,6 +167,63 @@ export const SharedCoreContextProvider = ({
     }
   }, [initialized, pairings, registerExpirerEvents]);
 
+  const sendError: IPairingPrivate["sendError"] = async (id, topic, error) => {
+    const payload = formatJsonRpcError(id, error);
+    const message = await sharedCore!.crypto.encode(topic, payload);
+    const record = await sharedCore!.history.get(topic, id);
+    const method = record.request.method as PairingJsonRpcTypes.WcMethod;
+    const opts: RelayerTypes.PublishOptions = PAIRING_RPC_OPTS[method]
+      ? PAIRING_RPC_OPTS[method].res
+      : PAIRING_RPC_OPTS.unregistered_method.res;
+
+    await sharedCore!.relayer.publish(topic, message, opts);
+    await sharedCore!.history.resolve(payload);
+  };
+
+  const onPairingPingRequest: IPairingPrivate["onPairingPingRequest"] = async (
+    topic,
+    payload
+  ) => {
+    const { id } = payload;
+    try {
+      isValidPing({ topic });
+      await sendResult<"wc_pairingPing">(id, topic, true);
+      events.emit("pairing_ping", { id, topic });
+    } catch (err: any) {
+      await sendError(id, topic, err);
+      logger.error(err);
+    }
+  };
+
+  const onPairingDeleteRequest: IPairingPrivate["onPairingDeleteRequest"] =
+    async (topic, payload) => {
+      const { id } = payload;
+      try {
+        isValidDisconnect({ topic });
+        await _deletePairing(topic);
+        events.emit("pairing_delete", { id, topic });
+      } catch (err: any) {
+        await sendError(id, topic, err);
+        logger.error(err);
+      }
+    };
+
+  const onUnknownRpcMethodRequest: IPairingPrivate["onUnknownRpcMethodRequest"] =
+    async (topic, payload) => {
+      const { id, method } = payload;
+
+      try {
+        // Ignore if the implementing client has registered this method as known.
+        if (registeredMethods.includes(method)) return;
+        const error = getSdkError("WC_METHOD_UNSUPPORTED", method);
+        await sendError(id, topic, error);
+        logger.error(error);
+      } catch (err: any) {
+        await sendError(id, topic, err);
+        logger.error(err);
+      }
+    };
+
   const onRelayEventRequest: IPairingPrivate["onRelayEventRequest"] = (
     event
   ) => {
@@ -177,6 +240,25 @@ export const SharedCoreContextProvider = ({
       default:
         return onUnknownRpcMethodRequest(topic, payload);
     }
+  };
+
+  const onPairingPingResponse: IPairingPrivate["onPairingPingResponse"] = (_topic, payload) => {
+    const { id } = payload;
+    // put at the end of the stack to avoid a race condition
+    // where pairing_ping listener is not yet initialized
+    setTimeout(() => {
+      if (isJsonRpcResult(payload)) {
+        events.emit(engineEvent("pairing_ping", id), {});
+      } else if (isJsonRpcError(payload)) {
+        events.emit(engineEvent("pairing_ping", id), { error: payload.error });
+      }
+    }, 500);
+  };
+
+  const onUnknownRpcMethodResponse: IPairingPrivate["onUnknownRpcMethodResponse"] = (method) => {
+    // Ignore if the implementing client has registered this method as known.
+    if (registeredMethods.includes(method)) return;
+    logger.error(getSdkError("WC_METHOD_UNSUPPORTED", method));
   };
 
   const onRelayEventResponse: IPairingPrivate["onRelayEventResponse"] = async (
