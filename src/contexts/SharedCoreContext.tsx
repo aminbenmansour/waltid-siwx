@@ -25,6 +25,7 @@ import {
   isJsonRpcResult,
 } from "@walletconnect/jsonrpc-utils";
 import {
+  CoreTypes,
   ExpirerTypes,
   ICore,
   IPairing,
@@ -74,6 +75,21 @@ import {
  */
 interface IContext {
   sharedCore: ICore | undefined;
+  register: (params: { methods: string[] }) => void;
+  create: () => Promise<{ topic: string; uri: string }>;
+  pair: (params: {
+    uri: string;
+    activatePairing?: boolean | undefined;
+  }) => Promise<PairingTypes.Struct>;
+  activate: (params: { topic: string }) => Promise<void>;
+  ping: (params: { topic: string }) => Promise<void>;
+  updateExpiry: (params: { topic: string; expiry: number }) => Promise<void>;
+  updateMetadata: (params: {
+    topic: string;
+    metadata: CoreTypes.Metadata;
+  }) => Promise<void>;
+  getPairings: () => PairingTypes.Struct[];
+  disconnect: (params: { topic: string }) => Promise<void>;
   relayerRegion: string;
   setRelayerRegion: any;
 }
@@ -103,6 +119,7 @@ export const SharedCoreContextProvider = ({
   const [sharedCore, setSharedCore] = useState<ICore>();
   const [pairings, setPairings] =
     useState<IStore<string, PairingTypes.Struct>>();
+  const [pending, setPending] = useState(false);
   const [initialized, setInitialized] = useState<boolean>(false);
   const [registeredMethods, setRegisteredMethods] = useState<string[]>([]);
   const [relayerRegion, setRelayerRegion] = useState<string>(
@@ -118,7 +135,23 @@ export const SharedCoreContextProvider = ({
     setSharedCore(core);
   }, [relayerRegion]);
 
-  const createPairingProposal: IPairing["create"] = useCallback(async () => {
+  const init: IPairing["init"] = async () => {
+    if (!initialized) {
+      await pairings!.init();
+      await cleanup();
+      registerRelayerEvents();
+      registerExpirerEvents();
+      setInitialized(true);
+      logger.trace(`Initialized`);
+    }
+  };
+
+  const register: IPairing["register"] = ({ methods }) => {
+    isInitialized();
+    setRegisteredMethods([...new Set([...registeredMethods, ...methods])]);
+  };
+
+  const create: IPairing["create"] = async () => {
     const symKey = generateRandomBytes32();
     const topic = await sharedCore!.crypto.setSymKey(symKey);
     const expiry = calcExpiry(FIVE_MINUTES);
@@ -137,22 +170,6 @@ export const SharedCoreContextProvider = ({
     sharedCore!.expirer.set(topic, expiry);
 
     return { topic, uri };
-  }, [sharedCore, pairings]);
-
-  const init: IPairing["init"] = async () => {
-    if (!initialized) {
-      await pairings!.init();
-      await cleanup();
-      registerRelayerEvents();
-      registerExpirerEvents();
-      setInitialized(true);
-      logger.trace(`Initialized`);
-    }
-  };
-
-  const register: IPairing["register"] = ({ methods }) => {
-    isInitialized();
-    setRegisteredMethods([...new Set([...registeredMethods, ...methods])]);
   };
 
   const pair: IPairing["pair"] = async (params) => {
@@ -209,7 +226,10 @@ export const SharedCoreContextProvider = ({
     await pairings!.update(topic, { expiry });
   };
 
-  const updateMetadata: IPairing["updateMetadata"] = async ({ topic, metadata }) => {
+  const updateMetadata: IPairing["updateMetadata"] = async ({
+    topic,
+    metadata,
+  }) => {
     isInitialized();
     await pairings!.update(topic, { peerMetadata: metadata });
   };
@@ -224,11 +244,15 @@ export const SharedCoreContextProvider = ({
     await isValidDisconnect(params);
     const { topic } = params;
     if (pairings!.keys.includes(topic)) {
-      await sendRequest(topic, "wc_pairingDelete", getSdkError("USER_DISCONNECTED"));
+      await sendRequest(
+        topic,
+        "wc_pairingDelete",
+        getSdkError("USER_DISCONNECTED")
+      );
       await deletePairing(topic);
     }
   };
-  
+
   // ---- Expirer Events ----
   const registerExpirerEvents = useCallback(() => {
     sharedCore!.expirer.on(
@@ -375,8 +399,6 @@ export const SharedCoreContextProvider = ({
     );
   }, []);
 
-
-  
   // ---- Private Helpers ----
   const sendRequest: IPairingPrivate["sendRequest"] = async (
     topic,
@@ -541,6 +563,15 @@ export const SharedCoreContextProvider = ({
   const value = useMemo(
     () => ({
       sharedCore,
+      register,
+      create,
+      pair,
+      activate,
+      ping,
+      updateExpiry,
+      updateMetadata,
+      getPairings,
+      disconnect,
       relayerRegion,
       setRelayerRegion,
     }),
