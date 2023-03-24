@@ -64,25 +64,25 @@ export const SharedCoreContextProvider = ({
 
   const initPairing: IPairing["init"] = useCallback(async () => {
     await sharedCore!.pairing.init();
-  }, []);
+  }, [sharedCore]);
 
-  const pairPeers: IPairing["pair"] = async (params: {
-    uri: string;
-    activatePairing?: boolean;
-  }) => {
-    const uri = params.uri;
-    const activatePairing = params.activatePairing;
-    const result: PairingTypes.Struct = await sharedCore!.pairing.pair({
-      uri,
-      activatePairing,
-    });
-    return result;
-  };
+  const pairPeers: IPairing["pair"] = useCallback(
+    async (params: { uri: string; activatePairing?: boolean }) => {
+      const uri = params.uri;
+      const activatePairing = params.activatePairing;
+      const result: PairingTypes.Struct = await sharedCore!.pairing.pair({
+        uri,
+        activatePairing,
+      });
+      return result;
+    },
+    [sharedCore]
+  );
 
   const createPairing: IPairing["create"] = useCallback(
     async (): Promise<{ topic: string; uri: string }> =>
       await sharedCore!.pairing.create(),
-    []
+    [sharedCore]
   );
 
   const activatePairing: IPairing["activate"] = useCallback(
@@ -90,7 +90,7 @@ export const SharedCoreContextProvider = ({
       const topic = params.topic;
       await sharedCore!.pairing.activate({ topic });
     },
-    []
+    [sharedCore]
   );
 
   const registerPairing: IPairing["register"] = useCallback(
@@ -98,7 +98,7 @@ export const SharedCoreContextProvider = ({
       const methods = params.methods;
       sharedCore!.pairing.register({ methods });
     },
-    []
+    [sharedCore]
   );
 
   const updateExpiry: IPairing["updateExpiry"] = useCallback(
@@ -107,7 +107,7 @@ export const SharedCoreContextProvider = ({
       const expiry = params.expiry;
       sharedCore!.pairing.updateExpiry({ topic, expiry });
     },
-    []
+    [sharedCore]
   );
 
   const updateMetadata: IPairing["updateMetadata"] = useCallback(
@@ -116,20 +116,20 @@ export const SharedCoreContextProvider = ({
       const metadata = params.metadata;
       sharedCore!.pairing.updateMetadata({ topic, metadata });
     },
-    []
+    [sharedCore]
   );
 
   const getPairings: IPairing["getPairings"] = useCallback(() => {
     const result: PairingTypes.Struct[] = sharedCore!.pairing.getPairings();
     return result;
-  }, []);
+  }, [sharedCore]);
 
   const pingPairing: IPairing["ping"] = useCallback(
     async (params: { topic: string }) => {
       const topic = params.topic;
       sharedCore!.pairing.ping({ topic });
     },
-    []
+    [sharedCore]
   );
 
   const disconnectPairing: IPairing["disconnect"] = useCallback(
@@ -137,15 +137,22 @@ export const SharedCoreContextProvider = ({
       const topic = params.topic;
       await sharedCore!.pairing.disconnect({ topic });
     },
-    []
+    [sharedCore]
   );
 
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
       console.log("WalletConnect's Core is initialized");
+      initPairing()
+        .then(() => {
+          console.log(
+            "initializing the client with persisted storage and a network connection"
+          );
+        })
+        .catch(console.error);
     }
-  }, [sharedCore, initSharedCore]);
+  }, [sharedCore, initSharedCore, initPairing]);
 
   const value = useMemo(
     () => ({
@@ -162,7 +169,20 @@ export const SharedCoreContextProvider = ({
       disconnectPairing,
       setRelayerRegion,
     }),
-    [sharedCore, , relayerRegion, setRelayerRegion]
+    [
+      sharedCore,
+      pairPeers,
+      createPairing,
+      activatePairing,
+      registerPairing,
+      updateExpiry,
+      updateMetadata,
+      getPairings,
+      pingPairing,
+      disconnectPairing,
+      relayerRegion,
+      setRelayerRegion,
+    ]
   );
   return (
     <SharedCoreContext.Provider value={{ ...value }}>
