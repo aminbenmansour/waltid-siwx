@@ -1,4 +1,4 @@
-import { Core, Pairing } from "@walletconnect/core";
+import { Core } from "@walletconnect/core";
 import { CoreTypes, ICore, IPairing, PairingTypes } from "@walletconnect/types";
 
 import {
@@ -23,6 +23,15 @@ import {
 interface IContext {
   sharedCore: ICore | undefined;
   relayerRegion: string;
+  pairPeers: IPairing["pair"];
+  createPairing: IPairing["create"];
+  activatePairing: IPairing["activate"];
+  registerPairing: IPairing["register"];
+  updateExpiry: IPairing["updateExpiry"];
+  updateMetadata: IPairing["updateMetadata"];
+  getPairings: IPairing["getPairings"];
+  pingPairing: IPairing["ping"];
+  disconnectPairing: IPairing["disconnect"];
   setRelayerRegion: any;
 }
 
@@ -142,6 +151,15 @@ export const SharedCoreContextProvider = ({
     () => ({
       sharedCore,
       relayerRegion,
+      pairPeers,
+      createPairing,
+      activatePairing,
+      registerPairing,
+      updateExpiry,
+      updateMetadata,
+      getPairings,
+      pingPairing,
+      disconnectPairing,
       setRelayerRegion,
     }),
     [sharedCore, , relayerRegion, setRelayerRegion]
