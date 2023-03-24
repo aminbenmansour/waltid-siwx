@@ -82,13 +82,13 @@ export function ClientContextProvider({
   const { sharedCore, relayerRegion, setRelayerRegion } =
     useSharedCoreContext();
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setSession(undefined);
     setBalances({});
     setAccounts([]);
     setChains([]);
     setRelayerRegion(DEFAULT_RELAY_URL!);
-  };
+  }, [setRelayerRegion]);
 
   const getAccountBalances = async (_accounts: string[]) => {
     setIsFetchingBalances(true);
@@ -193,7 +193,7 @@ export function ClientContextProvider({
       // Reset app state after disconnect.
       reset();
     }
-  }, [signClient, session]);
+  }, [signClient, session, reset]);
 
   const _subscribeToEvents = useCallback(
     async (_client: SignClient) => {
@@ -222,7 +222,7 @@ export function ClientContextProvider({
         reset();
       });
     },
-    [onSessionConnected]
+    [reset, onSessionConnected]
   );
 
   const _checkPersistedState = useCallback(
@@ -272,7 +272,7 @@ export function ClientContextProvider({
     } finally {
       setIsInitializing(false);
     }
-  }, [_checkPersistedState, _subscribeToEvents, relayerRegion]);
+  }, [sharedCore, relayerRegion, _checkPersistedState, _subscribeToEvents]);
 
   useEffect(() => {
     if (!signClient || prevRelayerValue.current !== relayerRegion) {
