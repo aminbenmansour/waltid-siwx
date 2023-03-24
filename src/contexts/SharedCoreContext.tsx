@@ -1,5 +1,5 @@
-import { Core } from "@walletconnect/core";
-import { ICore } from "@walletconnect/types";
+import { Core, Pairing } from "@walletconnect/core";
+import { CoreTypes, ICore, IPairing, PairingTypes } from "@walletconnect/types";
 
 import {
   createContext,
@@ -52,6 +52,84 @@ export const SharedCoreContextProvider = ({
     });
     setSharedCore(core);
   }, [relayerRegion]);
+
+  const initPairing: IPairing["init"] = useCallback(async () => {
+    await sharedCore!.pairing.init();
+  }, []);
+
+  const pairPeers: IPairing["pair"] = async (params: {
+    uri: string;
+    activatePairing?: boolean;
+  }) => {
+    const uri = params.uri;
+    const activatePairing = params.activatePairing;
+    const result: PairingTypes.Struct = await sharedCore!.pairing.pair({
+      uri,
+      activatePairing,
+    });
+    return result;
+  };
+
+  const createPairing: IPairing["create"] = useCallback(
+    async (): Promise<{ topic: string; uri: string }> =>
+      await sharedCore!.pairing.create(),
+    []
+  );
+
+  const activatePairing: IPairing["activate"] = useCallback(
+    async (params: { topic: string }) => {
+      const topic = params.topic;
+      await sharedCore!.pairing.activate({ topic });
+    },
+    []
+  );
+
+  const registerPairing: IPairing["register"] = useCallback(
+    (params: { methods: string[] }) => {
+      const methods = params.methods;
+      sharedCore!.pairing.register({ methods });
+    },
+    []
+  );
+
+  const updateExpiry: IPairing["updateExpiry"] = useCallback(
+    async (params: { topic: string; expiry: number }) => {
+      const topic = params.topic;
+      const expiry = params.expiry;
+      sharedCore!.pairing.updateExpiry({ topic, expiry });
+    },
+    []
+  );
+
+  const updateMetadata: IPairing["updateMetadata"] = useCallback(
+    async (params: { topic: string; metadata: CoreTypes.Metadata }) => {
+      const topic = params.topic;
+      const metadata = params.metadata;
+      sharedCore!.pairing.updateMetadata({ topic, metadata });
+    },
+    []
+  );
+
+  const getPairings: IPairing["getPairings"] = useCallback(() => {
+    const result: PairingTypes.Struct[] = sharedCore!.pairing.getPairings();
+    return result;
+  }, []);
+
+  const pingPairing: IPairing["ping"] = useCallback(
+    async (params: { topic: string }) => {
+      const topic = params.topic;
+      sharedCore!.pairing.ping({ topic });
+    },
+    []
+  );
+
+  const disconnectPairing: IPairing["disconnect"] = useCallback(
+    async (params: { topic: string }) => {
+      const topic = params.topic;
+      await sharedCore!.pairing.disconnect({ topic });
+    },
+    []
+  );
 
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
