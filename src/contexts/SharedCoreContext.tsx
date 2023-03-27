@@ -1,6 +1,8 @@
 import { Core } from "@walletconnect/core";
 import { CoreTypes, ICore, IPairing, PairingTypes } from "@walletconnect/types";
 
+import { Web3Modal } from "@web3modal/standalone";
+
 import {
   createContext,
   ReactNode,
@@ -24,6 +26,7 @@ interface IContext {
   sharedCore: ICore | undefined;
   relayerRegion: string;
   pairPeers: IPairing["pair"];
+  initPairing: IPairing["init"];
   createPairing: IPairing["create"];
   activatePairing: IPairing["activate"];
   registerPairing: IPairing["register"];
@@ -60,10 +63,20 @@ export const SharedCoreContextProvider = ({
       relayUrl: relayerRegion,
     });
     setSharedCore(core);
+    console.info("WalletConnect's Core is initialized");
   }, [relayerRegion]);
 
   const initPairing: IPairing["init"] = useCallback(async () => {
-    await sharedCore!.pairing.init();
+    try {
+      await sharedCore!.pairing.init();
+      console.info(
+        "Initialized sucessfully the client with persisted storage and a network connection"
+      );
+    } catch (error) {
+      throw new Error(
+        "Failed to initialize the client with persisted storage and a network connection"
+      );
+    }
   }, [sharedCore]);
 
   const pairPeers: IPairing["pair"] = useCallback(
@@ -79,55 +92,90 @@ export const SharedCoreContextProvider = ({
     [sharedCore]
   );
 
-  const createPairing: IPairing["create"] = useCallback(
-    async (): Promise<{ topic: string; uri: string }> =>
-      await sharedCore!.pairing.create(),
-    [sharedCore]
-  );
+  const createPairing: IPairing["create"] = useCallback(async (): Promise<{
+    topic: string;
+    uri: string;
+  }> => {
+    try {
+      const { topic, uri } = await sharedCore!.pairing.create();
+      console.info("Proposer created 'inactive' pairing");
+      return { topic, uri };
+    } catch (error) {
+      console.error;
+      throw new Error("Proposer failed to create 'inactive' pairing");
+    }
+  }, [sharedCore]);
 
   const activatePairing: IPairing["activate"] = useCallback(
     async (params: { topic: string }) => {
-      const topic = params.topic;
-      await sharedCore!.pairing.activate({ topic });
+      try {
+        const topic = params.topic;
+        await sharedCore!.pairing.activate({ topic });
+        console.info("Activated successfully the previously created pairing");
+      } catch (error) {
+        console.error;
+        throw new Error("Failed to activate the previously created pairing");
+      }
     },
     [sharedCore]
   );
 
   const registerPairing: IPairing["register"] = useCallback(
-    (params: { methods: string[] }) => {
-      const methods = params.methods;
-      sharedCore!.pairing.register({ methods });
+    async (params: { methods: string[] }) => {
+      try {
+        const methods = params.methods;
+        await sharedCore!.pairing.register({ methods });
+        console.info("Successfully subscribed on methods requests");
+      } catch (error) {
+        console.error;
+        throw new Error("Failed to subscribe on methods requests");
+      }
     },
     [sharedCore]
   );
 
   const updateExpiry: IPairing["updateExpiry"] = useCallback(
     async (params: { topic: string; expiry: number }) => {
-      const topic = params.topic;
-      const expiry = params.expiry;
-      sharedCore!.pairing.updateExpiry({ topic, expiry });
+      try {
+        const topic = params.topic;
+        const expiry = params.expiry;
+        await sharedCore!.pairing.updateExpiry({ topic, expiry });
+        console.info("Pairing's expiry updated successfully");
+      } catch (error) {
+        throw new Error("Failed to update pairing's expiry");
+      }
     },
     [sharedCore]
   );
 
   const updateMetadata: IPairing["updateMetadata"] = useCallback(
     async (params: { topic: string; metadata: CoreTypes.Metadata }) => {
-      const topic = params.topic;
-      const metadata = params.metadata;
-      sharedCore!.pairing.updateMetadata({ topic, metadata });
+      try {
+        const topic = params.topic;
+        const metadata = params.metadata;
+        await sharedCore!.pairing.updateMetadata({ topic, metadata });
+        console.info("Pairing's metadata updated");
+      } catch (error) {
+        throw new Error("Failed to update pairing's metadata");
+      }
     },
     [sharedCore]
   );
 
   const getPairings: IPairing["getPairings"] = useCallback(() => {
-    const result: PairingTypes.Struct[] = sharedCore!.pairing.getPairings();
-    return result;
+    const pairings = sharedCore!.pairing.getPairings();
+    console.info("Pairings fetched succefully");
+    return pairings;
   }, [sharedCore]);
 
   const pingPairing: IPairing["ping"] = useCallback(
     async (params: { topic: string }) => {
-      const topic = params.topic;
-      sharedCore!.pairing.ping({ topic });
+      try {
+        const topic = params.topic;
+        await sharedCore!.pairing.ping({ topic });
+      } catch (error) {
+        throw new Error("Failed to ping pairing");
+      }
     },
     [sharedCore]
   );
@@ -135,7 +183,11 @@ export const SharedCoreContextProvider = ({
   const disconnectPairing: IPairing["disconnect"] = useCallback(
     async (params: { topic: string }) => {
       const topic = params.topic;
-      await sharedCore!.pairing.disconnect({ topic });
+      try {
+        await sharedCore!.pairing.disconnect({ topic });
+      } catch (error) {
+        throw new Error(`Failed to disconnect pairing with topic:\n${topic}`);
+      }
     },
     [sharedCore]
   );
@@ -143,14 +195,6 @@ export const SharedCoreContextProvider = ({
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
-      console.log("WalletConnect's Core is initialized");
-      initPairing()
-        .then(() => {
-          console.log(
-            "initializing the client with persisted storage and a network connection"
-          );
-        })
-        .catch(console.error);
     }
   }, [sharedCore, initSharedCore, initPairing]);
 
@@ -159,6 +203,7 @@ export const SharedCoreContextProvider = ({
       sharedCore,
       relayerRegion,
       pairPeers,
+      initPairing,
       createPairing,
       activatePairing,
       registerPairing,
@@ -171,7 +216,9 @@ export const SharedCoreContextProvider = ({
     }),
     [
       sharedCore,
+      relayerRegion,
       pairPeers,
+      initPairing,
       createPairing,
       activatePairing,
       registerPairing,
@@ -180,7 +227,6 @@ export const SharedCoreContextProvider = ({
       getPairings,
       pingPairing,
       disconnectPairing,
-      relayerRegion,
       setRelayerRegion,
     ]
   );
