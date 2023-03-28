@@ -256,9 +256,12 @@ export function ClientContextProvider({
     try {
       setIsInitializing(true);
       const core = sharedCore;
+      const projectId = DEFAULT_PROJECT_ID;
+      const metadata = getAppMetadata() || DEFAULT_APP_METADATA;
       const _client = await SignClient.init({
         core,
-        metadata: getAppMetadata() || DEFAULT_APP_METADATA,
+        projectId,
+        metadata,
       });
 
       console.log("CREATED CLIENT: ", _client);
