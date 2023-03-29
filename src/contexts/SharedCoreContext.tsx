@@ -5,7 +5,9 @@ import { Web3Modal } from "@web3modal/standalone";
 
 import {
   createContext,
+  Dispatch,
   ReactNode,
+  SetStateAction,
   useCallback,
   useContext,
   useEffect,
@@ -24,9 +26,10 @@ import {
  */
 interface IContext {
   sharedCore: ICore | undefined;
+  topic: string | undefined;
+  uri: string | undefined;
   relayerRegion: string;
   pairPeers: IPairing["pair"];
-  initPairing: IPairing["init"];
   createPairing: IPairing["create"];
   activatePairing: IPairing["activate"];
   registerPairing: IPairing["register"];
@@ -35,7 +38,9 @@ interface IContext {
   getPairings: IPairing["getPairings"];
   pingPairing: IPairing["ping"];
   disconnectPairing: IPairing["disconnect"];
-  setRelayerRegion: any;
+  setTopic: Dispatch<SetStateAction<string | undefined>>;
+  setUri: Dispatch<SetStateAction<string | undefined>>;
+  setRelayerRegion: Dispatch<SetStateAction<string>>;
 }
 
 /**
@@ -52,6 +57,8 @@ export const SharedCoreContextProvider = ({
   children: ReactNode | ReactNode[];
 }) => {
   const [sharedCore, setSharedCore] = useState<ICore>();
+  const [topic, setTopic] = useState<string | undefined>(undefined);
+  const [uri, setUri] = useState<string | undefined>(undefined);
   const [relayerRegion, setRelayerRegion] = useState<string>(
     DEFAULT_RELAY_URL!
   );
@@ -66,28 +73,23 @@ export const SharedCoreContextProvider = ({
     console.info("WalletConnect's Core is initialized");
   }, [relayerRegion]);
 
-  const initPairing: IPairing["init"] = useCallback(async () => {
-    try {
-      await sharedCore!.pairing.init();
-      console.info(
-        "Initialized sucessfully the client with persisted storage and a network connection"
-      );
-    } catch (error) {
-      throw new Error(
-        "Failed to initialize the client with persisted storage and a network connection"
-      );
-    }
-  }, [sharedCore]);
 
   const pairPeers: IPairing["pair"] = useCallback(
     async (params: { uri: string; activatePairing?: boolean }) => {
       const uri = params.uri;
       const activatePairing = params.activatePairing;
-      const result: PairingTypes.Struct = await sharedCore!.pairing.pair({
-        uri,
-        activatePairing,
-      });
-      return result;
+
+      try {
+        const result: PairingTypes.Struct = await sharedCore!.pairing.pair({
+          uri,
+          activatePairing,
+        });
+        console.info(`Successfully pairing the pair which URI:\n${uri}`);
+        return result;
+      } catch (error) {
+        console.error(error);
+        throw new Error(`Failed to pair the pair which URI:\n${uri}`);
+      }
     },
     [sharedCore]
   );
@@ -98,7 +100,8 @@ export const SharedCoreContextProvider = ({
   }> => {
     try {
       const { topic, uri } = await sharedCore!.pairing.create();
-      console.info("Proposer created 'inactive' pairing");
+      setTopic(topic);
+      console.info(`Proposer created 'inactive' pairing with topic:\n${topic}`);
       return { topic, uri };
     } catch (error) {
       console.error;
@@ -111,7 +114,7 @@ export const SharedCoreContextProvider = ({
       try {
         const topic = params.topic;
         await sharedCore!.pairing.activate({ topic });
-        console.info("Activated successfully the previously created pairing");
+        console.info(`Activated successfully pairing with topic:\n${topic}`);
       } catch (error) {
         console.error;
         throw new Error("Failed to activate the previously created pairing");
@@ -195,15 +198,29 @@ export const SharedCoreContextProvider = ({
   useEffect(() => {
     if (typeof sharedCore === "undefined") {
       initSharedCore();
+    } else {
+      (async () => {
+        try {
+          await sharedCore!.pairing.init();
+          console.info(
+            "Initialized sucessfully the client with persisted storage and a network connection"
+          );
+        } catch (error) {
+          throw new Error(
+            "Failed to initialize the client with persisted storage and a network connection"
+          );
+        }
+      })();
     }
-  }, [sharedCore, initSharedCore, initPairing]);
+  }, [sharedCore, initSharedCore]);
 
   const value = useMemo(
     () => ({
       sharedCore,
+      topic,
+      uri,
       relayerRegion,
       pairPeers,
-      initPairing,
       createPairing,
       activatePairing,
       registerPairing,
@@ -212,13 +229,16 @@ export const SharedCoreContextProvider = ({
       getPairings,
       pingPairing,
       disconnectPairing,
+      setTopic,
+      setUri,
       setRelayerRegion,
     }),
     [
       sharedCore,
+      topic,
+      uri,
       relayerRegion,
       pairPeers,
-      initPairing,
       createPairing,
       activatePairing,
       registerPairing,
@@ -227,6 +247,8 @@ export const SharedCoreContextProvider = ({
       getPairings,
       pingPairing,
       disconnectPairing,
+      setTopic,
+      setUri,
       setRelayerRegion,
     ]
   );
